@@ -210,25 +210,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 }
 
 func TaskCompleted(task *Task) {
-	// Send an RPC request to the master to complete the task
+	// Send an RPC request to tell the master the task is complete
 	reply := ExampleReply{}
 	call("Master.TaskCompleted", task, &reply)
-}
-
-// Called after the master enter reduce phase. Create reduce tasks.
-func (m *Master) createReduceTask() {
-	m.TaskMeta = make(map[int]*MasterTask)
-	for idx, files := range m.Intermediates {
-		taskMeta := Task{
-			Phase:             Reduce,
-			NReducer:          m.NReduce,
-			Id:                idx,
-			IntermediatePaths: files,
-		}
-		m.TaskQueue <- &taskMeta
-		m.TaskMeta[idx] = &MasterTask{
-			State:         Idle,
-			TaskReference: &taskMeta,
-		}
-	}
 }

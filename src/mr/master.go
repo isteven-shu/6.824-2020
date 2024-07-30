@@ -46,12 +46,12 @@ type MasterTask struct {
 
 type Master struct {
 	// Your definitions here.
-	TaskQueue     chan *Task          // 等待执行的task
-	TaskMeta      map[int]*MasterTask // 当前所有task的信息
-	MasterPhase   TaskPhase           // Master的阶段
+	TaskQueue     chan *Task          // Tasks waiting to be done.
+	TaskMeta      map[int]*MasterTask // All tasks' information
+	MasterPhase   TaskPhase
 	NReduce       int
 	InputFiles    []string
-	Intermediates [][]string // Map任务产生的R个中间文件的信息
+	Intermediates [][]string // Map intermediate results path
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -105,15 +105,12 @@ func MakeMaster(files []string, nReduce int) *Master {
 		Intermediates: make([][]string, nReduce),
 	}
 
-	// 切成16MB-64MB的文件
-	// 创建map任务
+	// Create all the map tasks, each for a single file.
 	m.createMapTask()
 
-	// 一个程序成为master，其他成为worker
-	//这里就是启动master 服务器就行了，
-	//拥有master代码的就是master，别的发RPC过来的都是worker
+	// Start the master.
 	m.server()
-	// 启动一个goroutine 检查超时的任务
+	// Start a TimeOut Catcher.
 	go m.catchTimeOut()
 	return &m
 }
@@ -131,6 +128,24 @@ func (m *Master) createMapTask() {
 		m.TaskMeta[idx] = &MasterTask{
 			State:         Idle,
 			TaskReference: &task,
+		}
+	}
+}
+
+// Called after the master enters reduce phase. Create reduce tasks.
+func (m *Master) createReduceTask() {
+	m.TaskMeta = make(map[int]*MasterTask)
+	for idx, files := range m.Intermediates {
+		taskMeta := Task{
+			Phase:             Reduce,
+			NReducer:          m.NReduce,
+			Id:                idx,
+			IntermediatePaths: files,
+		}
+		m.TaskQueue <- &taskMeta
+		m.TaskMeta[idx] = &MasterTask{
+			State:         Idle,
+			TaskReference: &taskMeta,
 		}
 	}
 }
@@ -170,6 +185,7 @@ func (m *Master) AssignTask(args *ExampleArgs, reply *Task) error {
 	return nil
 }
 
+// Called by worker
 func (m *Master) TaskCompleted(task *Task, reply *ExampleReply) error {
 	mu.Lock()
 	defer mu.Unlock()
